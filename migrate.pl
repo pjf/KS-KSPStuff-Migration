@@ -2,16 +2,24 @@
 use 5.010;
 use strict;
 use warnings;
+use utf8::all;
 use autodie;
+use File::Find;
 use Data::Dumper;
+use JSON::XS;
+use File::Slurp qw(read_file write_file);
+use Method::Signatures;
+use Try::Tiny;
 
 # Migrate KS URLs to KSPStuff.
 # Paul '@pjf' Fenwick, Feb 2016
 # License: Same as Perl 5 itself.
 
-my $DEBUG = 1;
+my $DEBUG = 0;
 
 my $kspstuff_manifest = "kspstuff-files.txt";
+my $LOCAL_META        = "../CKAN-meta";
+my $json              = JSON::XS->new->pretty;
 
 # Build a hash of all the end-files on KSPStuff,
 # and their full paths. We also pick up the mod name
@@ -22,9 +30,78 @@ my $kspstuff_paths = read_paths($kspstuff_manifest);
 
 say Dumper $kspstuff_paths if $DEBUG;
 
-sub read_paths {
-    my $manifest = shift;
+# This is a curried, lexically scope function. It's
+# less offensive to Haskell programmers.
 
+my $patch_metadata = sub {
+    patch_metadata($kspstuff_paths, $_[0]);
+};
+
+# Patch our metadata!
+find( 
+    sub {
+        try {
+            patch_metadata($kspstuff_paths, $_);
+        }
+        catch {
+            say "Couldn't patch - $_";
+        };
+    },
+    $LOCAL_META
+);
+
+func patch_metadata($kspstuff, $filename) {
+
+    # Skip anything but "regular" files (eg: directories)
+    return if not -f $filename;
+
+    # Skip anything but .ckan files.
+    return if not $filename =~ /\.ckan$/;
+
+    # Awright! Let's see if we've got a KS URL inside.
+    open(my $ckan_fh, '<', $filename);
+
+    my $metadata = $json->decode( scalar read_file($filename) );
+
+    my $download_url = $metadata->{download};
+
+    # Return unless this is a KS mod.
+
+    return unless $download_url =~ m{
+        kerbalstuff\.com/mod/\d+/
+        (?<mod> [^/]+)
+        /download/
+        (?<version> .*)
+        $
+    }x;
+
+    # Aww yis, it is!
+
+    # Munge the name, since KS doesn't allow all characters in
+    # filenames, and converts spaces to underscores.
+
+    my ($mod, $version) = ($+{mod}, $+{version});
+    $mod =~ s/%20/_/g;
+    $mod =~ s/\.//;
+
+    # And try to patch the filename. This throws on failure.
+    $metadata->{download} = patch_download($mod, $version, $kspstuff);
+
+    # And write. :)
+
+    write_file( $filename, $json->encode( $metadata ) );
+
+    return;
+}
+
+func patch_download($mod, $version, $kspstuff) {
+    my $path = $kspstuff->{$mod}{$version}
+        or die "Can't find $mod ($version) on KerbalStuff\n";
+
+    return "http://cdn.kspstuff.com/$path";
+}
+
+func read_paths($manifest) {
     open(my $manifest_fh, '<:crlf', $manifest);
 
     my %kspstuff_path;
@@ -42,7 +119,7 @@ sub read_paths {
             $
         }msx or die "Cannot parse $_";
 
-        $kspstuff_path{$file} = $_;
+        $kspstuff_path{$mod}{$version} = $_;
     }
 
     return \%kspstuff_path;
