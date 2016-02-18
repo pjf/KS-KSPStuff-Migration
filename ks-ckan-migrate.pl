@@ -16,12 +16,24 @@ use Digest::SHA1 qw(sha1_hex);
 my $DEBUG             = 0;
 my $LOCAL_META        = "../CKAN-meta";
 my $json              = JSON::XS->new->pretty;
+my %rewrite;
+
+my ($to_rewrite) = @ARGV;
+
+if ($to_rewrite) {
+    open(my $fh, '<', $to_rewrite);
+
+    while (<$fh>) {
+        chomp;
+        $rewrite{$_}++;
+    }
+}
 
 # Patch our metadata!
 find( 
     sub {
         try {
-            patch_metadata($_);
+            patch_metadata($_,%rewrite);
         }
         catch {
             say "Couldn't patch - $_";
@@ -30,7 +42,7 @@ find(
     $LOCAL_META
 );
 
-func patch_metadata($filename) {
+func patch_metadata($filename, %rewrite) {
     # Skip anything but "regular" files (eg: directories)
     return if not -f $filename;
 
@@ -71,7 +83,27 @@ func patch_metadata($filename) {
 
     my $hash = cache_hash($download_url);
 
-    say "$hash";
+    if ($rewrite{$hash}) {
+        say "$hash # Re-writing $filename";
+
+        my $new_url = "https://s3-us-west-2.amazonaws.com/ksp-ckan/$hash.zip";
+
+        my $ckan = read_file($filename);
+
+        # Yup, we're munging it with regexps, so all
+        # the keys stay in order and we get a pretty
+        # diff for git.
+
+        $ckan =~ s{
+            ("download"\s*:\s*)"$download_url"
+        }{$1"$new_url"}msx or die "Failed to rewrite $filename";
+
+        write_file($filename, $ckan);
+
+    }
+    else {
+        # say "$hash # $filename";
+    }
 
     return;
 
