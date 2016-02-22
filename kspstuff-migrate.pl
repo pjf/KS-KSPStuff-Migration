@@ -98,7 +98,7 @@ func patch_download($mod, $version, $kspstuff) {
     my $path = $kspstuff->{$mod}{$version}
         or die "Can't find $mod ($version) on KerbalStuff\n";
 
-    return "http://cdn.kspstuff.com/$path";
+    return "http://i.52k.de/kspmods/$path";
 }
 
 func read_paths($manifest) {
