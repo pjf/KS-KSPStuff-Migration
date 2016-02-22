@@ -58,10 +58,21 @@ func patch_metadata($kspstuff, $filename) {
     # Skip anything but .ckan files.
     return if not $filename =~ /\.ckan$/;
 
-    # Awright! Let's see if we've got a KS URL inside.
+    # Awright! Let's what we've got.
     open(my $ckan_fh, '<', $filename);
 
     my $metadata = $json->decode( scalar read_file($filename) );
+
+    # Check the license!
+    my $license = $metadata->{license};
+
+    # Unknown or restricted license? Don't touch it.
+    if ($license eq "restricted" or $license eq "unknown") {
+        debug("Non-free license on $filename, skipping");
+        return;
+    }
+
+    # All our other licenses are free. As in freedom.
 
     my $download_url = $metadata->{download};
 
@@ -89,7 +100,15 @@ func patch_metadata($kspstuff, $filename) {
 
     # And write. :)
 
-    write_file( $filename, $json->encode( $metadata ) );
+    # Previously we'd do a JSON dump here, but that changes key-ordering,
+    # so instead we do some magic regexpes instead.
+
+    my $content = read_file($filename);
+
+    $content =~ s{"\Q$download_url\E"}{"$metadata->{download}"}msg
+        or die "Failed to rewrite $filename";
+
+    write_file($filename, $content);
 
     return;
 }
@@ -123,4 +142,9 @@ func read_paths($manifest) {
     }
 
     return \%kspstuff_path;
+}
+
+func debug($msg) {
+    return if not $DEBUG;
+    say STDERR $msg;
 }
