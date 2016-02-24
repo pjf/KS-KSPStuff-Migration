@@ -93,7 +93,7 @@ func patch_metadata($kspstuff, $filename) {
 
     my ($mod, $version) = ($+{mod}, $+{version});
     $mod =~ s/%20/_/g;
-    $mod =~ s/\.//;
+    $mod =~ s/\.|%21//g;
 
     # And try to patch the filename. This throws on failure.
     $metadata->{download} = patch_download($mod, $version, $kspstuff);
